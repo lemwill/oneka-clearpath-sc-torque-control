@@ -32,18 +32,7 @@ int verifyVelocity(float velocity, INode &theNode) {
 	return 0;
 }
 
-void adjustTorque(INode &theNode) {
-
-	// Read the velocity =====================================
-	theNode.Motion.VelMeasured.Refresh();
-	float velocity_raw = theNode.Motion.VelMeasured.Value();
-
-	if (verifyVelocity(velocity_raw, theNode) == -1) {
-		return;
-	}
-
-	// Scale the velocity =====================================
-	float velocity = velocity_raw;
+void adjustTorque(INode &theNode, float velocity) {
 
 	// Set the torque =====================================
 	float torque_setpoint_percentage;
@@ -83,7 +72,7 @@ void adjustTorque(INode &theNode) {
 			torque_setpoint_percentage,
 			torque_setpoint_percentage_with_saturation);
 
-	theNode.Limits.TrqGlobal.Value(torque_setpoint_percentage, false);
+	theNode.Limits.TrqGlobal.Value(torque_setpoint_percentage_with_saturation, false);
 }
 
 size_t connect(SysManager &myMgr) {
@@ -181,7 +170,7 @@ int returnMotorToHome(INode &theNode, SysManager &myMgr) {
 }
 
 
-int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr){
+int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr, bool torqueControlOn = true){
 
 	// Change the position tracking error limit. This allows to control the motor in torque
 	theNode.Limits.PosnTrackingLimit.Value(128000, false);
@@ -212,8 +201,19 @@ int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr){
 			//printf("Error: Timed out waiting for move to complete\n");
 		}
 
-		// Dynamically control the torque of the motor.
-		adjustTorque(theNode);
+
+
+		// Read the velocity =====================================
+		theNode.Motion.VelMeasured.Refresh();
+
+		float velocity = theNode.Motion.VelMeasured.Value();
+
+		if (torqueControlOn == true){
+			adjustTorque(theNode, velocity);
+		}
+
+		verifyVelocity(velocity, theNode);
+
 
 	}
 	printf("\nNode \t%zi Move Done\n", 0);
@@ -236,7 +236,12 @@ int main(int argc, char *argv[]) {
 
 		returnMotorToHome(theNode, myMgr);
 
-		moveMotor(100000, theNode, myMgr);
+		// Move the motor
+		theNode.Limits.TrqGlobal.Value(3, false);
+		moveMotor(-100000, theNode, myMgr, false);
+
+		// Move the motor with torque control
+		moveMotor(-100000, theNode, myMgr, true);
 
 		// Disable the node
 		myPort.Nodes(0).EnableReq(false);
