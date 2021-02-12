@@ -7,20 +7,36 @@
 
 using namespace sFnd;
 
+#define MOTOR_TORQUE_TO_FORCE_KG_PER_PERCENT 0.9
 
-#define ACC_LIM_RPM_PER_SEC	300
-#define VEL_LIM_RPM			100
+// Control loop configuration
+float VELOCITY_MAX_RPM = 400;
+float VELOCITY_MAX_TIMER = 20;
+float FORCE_MAX_KG = 25;
+float FORCE_MIN_KG = 3;
+float FORCE_AT_ORIGIN = 10;
+float TRANSITION_VELOCITY_WINDOW_WIDTH_RPM = 50;
+float WORKING_FORCE_KG = 20;
+float WORKING_SLOPE_KG_PER_RPM = 0.05;
+float RETURN_SLOPE_KG_PER_RPM = 0.05;
+
+// Cable rewind configuration
+
+#define ENCODER_TURNS_PER_REVOLUTION 32000
+#define ACCELERATION_LIMIT_RPM_PER_SECOND	300
 #define TIME_TILL_TIMEOUT	10000	//The timeout used for homing(ms)
+
+
 
 int verifyVelocity(float velocity, INode &theNode) {
 	static int velocity_error_counter = 0;
 
 	// If the velocity is above a threshold for too long, shutdown the motor
-	if (abs(velocity) > 200) {
+	if (abs(velocity) > VELOCITY_MAX_RPM) {
 
 		// Increase the velocity_error_counter
 		velocity_error_counter += 1;
-		if (velocity_error_counter >= 3) {
+		if (velocity_error_counter >= VELOCITY_MAX_TIMER) {
 			theNode.Motion.NodeStop(STOP_TYPE_DISABLE_ABRUPT);
 			printf("Stop the motor. The velocity was too high \n");
 			return -1;
@@ -35,38 +51,52 @@ int verifyVelocity(float velocity, INode &theNode) {
 void adjustTorque(INode &theNode, float velocity) {
 
 	// Set the torque =====================================
-	float torque_setpoint_percentage;
-	float torque_at_origin = 0;
-	float slope = 0;
 
+
+	// torque_at_origin
+	// torque_slope_at_negative_velocity
+	// velocity
+
+	//
+	//
+	//
+	//
+	//               |
+	//  ____---------|
+	//              0
+	float slope = 0;
+	float origin = 0;
 	// Set the torque when the velocity is < 0
+
+	float transition_slope = (WORKING_FORCE_KG-FORCE_AT_ORIGIN)/TRANSITION_VELOCITY_WINDOW_WIDTH_RPM;
+
 	if (velocity < 0.0) {
-		torque_at_origin = 0.3;
-		slope = 0.05;
+		origin = FORCE_AT_ORIGIN;
+		slope = RETURN_SLOPE_KG_PER_RPM;
 
 		// Set the torque when the velocity is > 0.1
-	} else if (velocity > 0.1) {
-		slope = 0.10;
-		torque_at_origin = 0.59;
+	} else if (velocity > TRANSITION_VELOCITY_WINDOW_WIDTH_RPM) {
+		slope = WORKING_SLOPE_KG_PER_RPM;
+		origin = FORCE_AT_ORIGIN+TRANSITION_VELOCITY_WINDOW_WIDTH_RPM*(transition_slope-WORKING_SLOPE_KG_PER_RPM);
 
 		// Set the torque when the velocity is between 0 and 0.1
 	} else {
-		torque_at_origin = 0.3;
-		slope = 3.00;
+		origin = FORCE_AT_ORIGIN;
+		slope = transition_slope;
 	}
 
 	// Set the toque setpoint
-	torque_setpoint_percentage = velocity * slope + torque_at_origin;
+	float torque_setpoint_percentage = velocity * slope + origin;
 
 	float torque_setpoint_percentage_with_saturation =
 			torque_setpoint_percentage;
 
 	// Put limits on the torque setpoint
-	if (torque_setpoint_percentage_with_saturation > 20.0) {
-		torque_setpoint_percentage_with_saturation = 20.0;
+	if (torque_setpoint_percentage_with_saturation > FORCE_MAX_KG) {
+		torque_setpoint_percentage_with_saturation = FORCE_MAX_KG;
 	}
-	if (torque_setpoint_percentage_with_saturation < 5.0) {
-		torque_setpoint_percentage_with_saturation = 5.0;
+	if (torque_setpoint_percentage_with_saturation < FORCE_MIN_KG) {
+		torque_setpoint_percentage_with_saturation = FORCE_MIN_KG;
 	}
 	printf("Velocity: %f Torque before saturation: %f Torque: %f\n", velocity,
 			torque_setpoint_percentage,
@@ -74,6 +104,13 @@ void adjustTorque(INode &theNode, float velocity) {
 
 	theNode.Limits.TrqGlobal.Value(torque_setpoint_percentage_with_saturation, false);
 }
+
+
+void rewindWire(){
+
+
+}
+
 
 size_t connect(SysManager &myMgr) {
 
@@ -170,10 +207,10 @@ int returnMotorToHome(INode &theNode, SysManager &myMgr) {
 }
 
 
-int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr, bool torqueControlOn = true){
+int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr, float maxVelocity = 60, bool torqueControlOn = true, bool rewindMotor = false){
 
 	// Change the position tracking error limit. This allows to control the motor in torque
-	theNode.Limits.PosnTrackingLimit.Value(128000, false);
+	theNode.Limits.PosnTrackingLimit.Value(128000000, false);
 	//theNode.Limits.PosnTrackingLimit.Value(1600, false);
 
 	printf("Position tracking limit: %d \n", theNode.Limits.PosnTrackingLimit.Value());
@@ -184,8 +221,8 @@ int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr, bool torqueC
 
 	theNode.AccUnit(INode::RPM_PER_SEC);//Set the units for Acceleration to RPM/SEC
 	theNode.VelUnit(INode::RPM);//Set the units for Velocity to RPM
-	theNode.Motion.AccLimit = ACC_LIM_RPM_PER_SEC;//Set Acceleration Limit (RPM/Sec)
-	theNode.Motion.VelLimit = VEL_LIM_RPM;//Set Velocity Limit (RPM)
+	theNode.Motion.AccLimit = ACCELERATION_LIMIT_RPM_PER_SECOND;//Set Acceleration Limit (RPM/Sec)
+	theNode.Motion.VelLimit = maxVelocity;//Set Velocity Limit (RPM)
 
 	printf("Moving Node \t%zi \n", 0);
 	theNode.Motion.MovePosnStart(distanceCount);//Execute 10000 encoder count move
@@ -199,6 +236,8 @@ int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr, bool torqueC
 	while (!theNode.Motion.MoveIsDone()) {
 		if (myMgr.TimeStampMsec() > timeout) {
 			//printf("Error: Timed out waiting for move to complete\n");
+			//theNode.Motion.NodeStop(STOP_TYPE_DISABLE_ABRUPT);
+
 		}
 
 
@@ -212,9 +251,36 @@ int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr, bool torqueC
 			adjustTorque(theNode, velocity);
 		}
 
+		if (rewindMotor == true){
+
+			theNode.Limits.TrqGlobal.Value(25, false);
+
+			static int velocity_error_counter = 0;
+
+			theNode.Motion.TrqMeasured.Refresh();
+			float torque = theNode.Motion.TrqMeasured.Value();
+			printf("Rewinding motor, torque: %f\n", torque);
+
+			if(abs(torque) > 20){
+				velocity_error_counter = velocity_error_counter + 1;
+
+				if (velocity_error_counter > 40){
+					//theNode.Motion.NodeStop(STOP_TYPE_DISABLE_ABRUPT);
+					return 0;
+					printf("Done rewinding motor\n");
+				}
+			} else {
+				velocity_error_counter = 0;
+			}
+		}
+
 		verifyVelocity(velocity, theNode);
 
 
+	}
+	if (rewindMotor = true){
+		printf("reached max number of turns. Stopping");
+		theNode.Motion.NodeStop(STOP_TYPE_DISABLE_ABRUPT);
 	}
 	printf("\nNode \t%zi Move Done\n", 0);
 }
@@ -237,11 +303,15 @@ int main(int argc, char *argv[]) {
 		returnMotorToHome(theNode, myMgr);
 
 		// Move the motor
-		theNode.Limits.TrqGlobal.Value(3, false);
-		moveMotor(-100000, theNode, myMgr, false);
+		//moveMotor(100000, theNode, myMgr, false);
 
 		// Move the motor with torque control
-		moveMotor(-100000, theNode, myMgr, true);
+		//for( int i = 0; i < 10; i++){
+		//	theNode.Limits.TrqGlobal.Value(3, false);
+		//}
+		moveMotor(-1*ENCODER_TURNS_PER_REVOLUTION, theNode, myMgr,60, false, true);
+
+		moveMotor(-10*ENCODER_TURNS_PER_REVOLUTION, theNode, myMgr, 1000, true, false);
 
 		// Disable the node
 		myPort.Nodes(0).EnableReq(false);
