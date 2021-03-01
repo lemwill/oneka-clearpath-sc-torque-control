@@ -4,6 +4,7 @@
 #include <iostream>
 #include "pubSysCls.h"	
 #include <unistd.h>
+#include <signal.h>
 
 using namespace sFnd;
 
@@ -26,7 +27,14 @@ float RETURN_SLOPE_KG_PER_RPM = 0.05;
 #define ACCELERATION_LIMIT_RPM_PER_SECOND	300
 #define TIME_TILL_TIMEOUT	10000	//The timeout used for homing(ms)
 
+INode* node;
 
+void exitHandler(int value) {
+	printf("Ctrl+C detected. Stopping motor");
+	node->Motion.NodeStop(STOP_TYPE_DISABLE_ABRUPT);
+	
+	exit(0);
+}
 
 int verifyVelocity(float velocity, INode &theNode) {
 	static int velocity_error_counter = 0;
@@ -287,7 +295,8 @@ int moveMotor(int distanceCount, INode &theNode, SysManager &myMgr, float maxVel
 
 
 int main(int argc, char *argv[]) {
-
+	
+	signal(SIGINT, exitHandler);
 	SysManager myMgr;
 
 	try {
@@ -296,22 +305,22 @@ int main(int argc, char *argv[]) {
 
 		IPort &myPort = myMgr.Ports(0);
 
-		INode &theNode = myPort.Nodes(0);
+		node = &(myPort.Nodes(0));
 
-		initialize_motor(theNode, myMgr);
+		initialize_motor(*node, myMgr);
 
-		returnMotorToHome(theNode, myMgr);
+		returnMotorToHome(*node, myMgr);
 
 		// Move the motor
-		//moveMotor(100000, theNode, myMgr, false);
+		//moveMotor(100000, node, myMgr, false);
 
 		// Move the motor with torque control
 		//for( int i = 0; i < 10; i++){
 		//	theNode.Limits.TrqGlobal.Value(3, false);
 		//}
-		moveMotor(-1*ENCODER_TURNS_PER_REVOLUTION, theNode, myMgr,60, false, true);
+		moveMotor(-1*ENCODER_TURNS_PER_REVOLUTION, *node, myMgr,60, false, true);
 
-		moveMotor(-10*ENCODER_TURNS_PER_REVOLUTION, theNode, myMgr, 1000, true, false);
+		moveMotor(-10*ENCODER_TURNS_PER_REVOLUTION, *node, myMgr, 1000, true, false);
 
 		// Disable the node
 		myPort.Nodes(0).EnableReq(false);

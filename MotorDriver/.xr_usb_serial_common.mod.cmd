@@ -1,0 +1,1 @@
+cmd_/home/pi/Downloads/ExarKernelDriver/xr_usb_serial_common.mod := { echo  /home/pi/Downloads/ExarKernelDriver/xr_usb_serial_common.o; echo; } > /home/pi/Downloads/ExarKernelDriver/xr_usb_serial_common.mod
